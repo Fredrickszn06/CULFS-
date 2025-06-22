@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -8,11 +7,15 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:password@localhost/culfs_database'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:Fredrick4r%23%40%21%24@localhost/culfs_database'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['SQLALCHEMY_ECHO'] = True
+
 
 db = SQLAlchemy(app)
 CORS(app)
@@ -202,23 +205,37 @@ def check_for_matches(found_item):
 
 # API Routes
 
+
+
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.get_json()
-    
+    print(f"[DEBUG] Incoming registration data: {data}")
+
     try:
+        if not data:
+            raise ValueError("No data provided")
+
+        required_fields = ['name', 'email', 'password', 'role']
+        for field in required_fields:
+            if field not in data:
+                raise ValueError(f"Missing required field: {field}")
+
+        # Hash the password
+        hashed_password = generate_password_hash(data['password'])
+
         # Create user
         user = User(
             name=data['name'],
             role=data['role'],
             university_credentials=data.get('credentials'),
             email_address=data['email'],
-            password_hash=data['password']  # In production, hash this!
+            password_hash=hashed_password
         )
         db.session.add(user)
-        db.session.flush()  # Get user_id
-        
-        # Create role-specific record
+        db.session.flush()
+
+        # Role-specific
         if data['role'] == 'student':
             student = Student(
                 matric_no=data['matricNo'],
@@ -227,6 +244,7 @@ def register():
                 level=data['level']
             )
             db.session.add(student)
+
         elif data['role'] == 'staff':
             staff = Staff(
                 staff_id=data['staffId'],
@@ -234,17 +252,18 @@ def register():
                 office_id=data.get('officeId', 'ADMIN')
             )
             db.session.add(staff)
-        
+
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'user_id': user.user_id,
             'message': 'Registration successful'
         })
-    
+
     except Exception as e:
         db.session.rollback()
+        print(f"[ERROR] Registration failed: {e}")
         return jsonify({'success': False, 'message': str(e)}), 400
 
 @app.route('/api/login', methods=['POST'])
@@ -252,7 +271,7 @@ def login():
     data = request.get_json()
     
     # Admin login
-    if data['email'] == 'admin' and data['password'] == 'admin':
+    if (data.get('email') == 'admin' or data.get('email') == 'admin@covenantuniversity.edu.ng') and data.get('password') == 'admin':
         return jsonify({
             'success': True,
             'user': {
@@ -261,12 +280,12 @@ def login():
                 'email': 'admin@covenantuniversity.edu.ng',
                 'role': 'admin'
             }
-        })
+        }), 200
     
     # Regular user login
     user = User.query.filter_by(email_address=data['email']).first()
     
-    if user and user.password_hash == data['password']:  # In production, use proper password hashing!
+    if user and check_password_hash(user.password_hash, data['password']):  # In production, use proper password hashing!
         user_data = {
             'id': user.user_id,
             'name': user.name,
@@ -284,7 +303,7 @@ def login():
             if staff:
                 user_data['staffId'] = staff.staff_id
         
-        return jsonify({'success': True, 'user': user_data})
+        return jsonify({'success': True, 'user': user_data}),200
     
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
@@ -308,6 +327,8 @@ def report_lost_item():
         )
         
         db.session.add(lost_item)
+        db.session.commit()
+        print(f"[DEBUG] Lost item saved: {lost_item}")
         
         # Send confirmation email
         user = User.query.get(data['userId'])
@@ -345,6 +366,9 @@ def report_lost_item():
     
     except Exception as e:
         db.session.rollback()
+        print(f"[ERROR] Failed to save lost item. Data: {data}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 400
 
 @app.route('/api/log-found-item', methods=['POST'])
@@ -384,6 +408,7 @@ def log_found_item():
 @app.route('/api/lost-items/<user_id>', methods=['GET'])
 def get_user_lost_items(user_id):
     lost_items = LostItems.query.filter_by(user_id=user_id).all()
+    print(f"[DEBUG] Lost items for user {user_id}: {lost_items}")
     
     items_data = []
     for item in lost_items:
@@ -401,6 +426,7 @@ def get_user_lost_items(user_id):
 @app.route('/api/admin/lost-items', methods=['GET'])
 def get_all_lost_items():
     lost_items = db.session.query(LostItems, User).join(User).all()
+    print(f"[DEBUG] All lost items (admin): {lost_items}")
     
     items_data = []
     for lost_item, user in lost_items:

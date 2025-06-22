@@ -63,15 +63,45 @@ export const StudentRegistration = ({ onRegister, onBack }: StudentRegistrationP
       }
 
       // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const newUser: User = {
-        id: `student-${Date.now()}`,
-        name: formData.name,
-        email: formData.email,
-        role: 'student',
-        matricNo: formData.matricNo
-      };
+      // const newUser: User = {
+      //   id: `student-${Date.now()}`,
+      //   name: formData.name,
+      //   email: formData.email,
+      //   role: 'student',
+      //   matricNo: formData.matricNo
+      // };
+const response = await fetch('http://localhost:5000/api/register', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    name: formData.name,
+    role: 'student',
+    credentials: formData.regNo, // optional: university_credentials
+    email: formData.email,
+    password: formData.password,
+    matricNo: formData.matricNo,
+    department: formData.department,
+    level: formData.level,
+  }),
+});
+
+const data = await response.json();
+
+if (!response.ok || !data.success) {
+  throw new Error(data.message || 'Registration failed');
+}
+
+const newUser: User = {
+  id: data.user_id,
+  name: formData.name,
+  email: formData.email,
+  role: 'student',
+  matricNo: formData.matricNo,
+};
 
       toast({
         title: "Registration Successful",

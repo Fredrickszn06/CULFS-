@@ -1,6 +1,4 @@
 
--- CULfs (Covenant University Lost and Found System) Database
--- MySQL Database Schema
 
 CREATE DATABASE IF NOT EXISTS culfs_database;
 USE culfs_database;
