@@ -10,11 +10,15 @@ import { useToast } from "@/hooks/use-toast";
 import { Upload } from 'lucide-react';
 
 interface LostItem {
+  userId: string;
   caseNumber: string;
   itemName: string;
   itemType: string;
+  itemColor: string;
   status: string;
-  dateReported: string;
+  brand: string;
+  description: string;
+  lastSeenDate: string;
   lastSeenLocation: string;
 }
 
@@ -66,19 +70,27 @@ export const ReportLostItemForm = ({ userId, onItemReported }: ReportLostItemFor
     setLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
 
       const caseNumber = generateCaseNumber();
       
       const newItem: LostItem = {
+        userId: userId,
         caseNumber,
         itemName: formData.itemName,
         itemType: formData.itemType,
+        itemColor: formData.itemColor,
+        brand: formData.brand,
+        description: formData.description,
         status: 'Reported',
-        dateReported: new Date().toISOString().split('T')[0],
+        lastSeenDate: new Date().toISOString().split('T')[0],
         lastSeenLocation: formData.lastSeenLocation
       };
+
+      const response = await fetch('http://localhost:5000/api/report-lost-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem),
+      });
 
       // Reset form
       setFormData({

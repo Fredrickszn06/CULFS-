@@ -310,7 +310,7 @@ def login():
 @app.route('/api/report-lost-item', methods=['POST'])
 def report_lost_item():
     data = request.get_json()
-    
+    print(data)
     try:
         case_number = generate_case_number()
         
@@ -323,7 +323,8 @@ def report_lost_item():
             brand=data.get('brand'),
             description=data['description'],
             last_seen_location=data['lastSeenLocation'],
-            last_seen_date=datetime.strptime(data['lastSeenDate'], '%Y-%m-%d').date()
+            last_seen_date=datetime.strptime(data['lastSeenDate'], '%Y-%m-%d').date(),
+            image_path=None
         )
         
         db.session.add(lost_item)

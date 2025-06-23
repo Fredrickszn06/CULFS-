@@ -11,11 +11,11 @@ import { Upload } from 'lucide-react';
 
 interface FoundItem {
   foundItemId: string;
+  officeId: string;
   itemName: string;
   itemColor: string;
   foundDate: string;
   foundLocation: string;
-  status: string;
   description: string;
 }
 
@@ -67,19 +67,23 @@ export const LogFoundItemForm = ({ onFoundItemLogged }: LogFoundItemFormProps) =
 
     try {
       // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
       const foundItemId = generateFoundItemId();
       
       const newFoundItem: FoundItem = {
-        foundItemId,
+        foundItemId:foundItemId,
+        officeId:formData.officeId,
         itemName: formData.itemName,
         itemColor: formData.itemColor,
         foundDate: formData.foundDate,
         foundLocation: formData.foundLocation,
-        status: 'Found',
+        // status: 'Found',
         description: formData.description
       };
+       const response = await fetch('http://localhost:5000/api/log-found-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newFoundItem),
+      });
 
       // Reset form
       setFormData({

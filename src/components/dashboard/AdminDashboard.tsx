@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,40 +40,9 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
-  const [lostItems] = useState<LostItem[]>([
-    {
-      caseNumber: 'CU2024001',
-      itemName: 'iPhone 13',
-      itemType: 'Electronics',
-      status: 'Reported',
-      dateReported: '2024-01-15',
-      lastSeenLocation: 'Library',
-      reporterName: 'John Doe',
-      reporterEmail: 'john.doe@stu.cu.edu.ng'
-    },
-    {
-      caseNumber: 'CU2024002',
-      itemName: 'Laptop Bag',
-      itemType: 'Accessories',
-      status: 'Matched',
-      dateReported: '2024-01-14',
-      lastSeenLocation: 'Computer Lab',
-      reporterName: 'Jane Smith',
-      reporterEmail: 'jane.smith@stu.cu.edu.ng'
-    }
-  ]);
 
-  const [foundItems, setFoundItems] = useState<FoundItem[]>([
-    {
-      foundItemId: 'FI2024001',
-      itemName: 'Laptop Bag',
-      itemColor: 'Black',
-      foundDate: '2024-01-16',
-      foundLocation: 'Computer Lab',
-      status: 'Found',
-      description: 'Black laptop bag with university logo'
-    }
-  ]);
+  const [foundItems, setFoundItems] = useState<FoundItem[]>([]);
+  const [lostItems, setLostItems] = useState<LostItem[]>([]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -89,7 +58,40 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
 
   const handleFoundItemLogged = (newFoundItem: FoundItem) => {
     setFoundItems([newFoundItem, ...foundItems]);
+    fetchFoundItems()
+    fetchLostItems()
   };
+
+  const fetchFoundItems = async () => {
+      const response = await fetch(`http://localhost:5000/api/admin/found-items`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+  
+      const items = await response.json();
+      console.log(items)
+  
+      setFoundItems(items.items);
+    }
+    
+    const fetchLostItems = async () => {
+      const response = await fetch(`http://localhost:5000/api/admin/lost-items`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+  
+      const items = await response.json();
+      console.log(items)
+  
+      setLostItems(items.items);
+    }
+    
+  
+    useEffect( () =>{
+       fetchFoundItems();
+       fetchLostItems();
+    }
+    ,[])
 
   const totalReports = lostItems.length;
   const totalFound = foundItems.length;

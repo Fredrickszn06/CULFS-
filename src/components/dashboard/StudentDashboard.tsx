@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,16 +29,7 @@ interface StudentDashboardProps {
 
 export const StudentDashboard = ({ user, onLogout }: StudentDashboardProps) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'report' | 'history'>('dashboard');
-  const [reportedItems, setReportedItems] = useState<LostItem[]>([
-    {
-      caseNumber: 'CU2024001',
-      itemName: 'iPhone 13',
-      itemType: 'Electronics',
-      status: 'Reported',
-      dateReported: '2024-01-15',
-      lastSeenLocation: 'Library'
-    }
-  ]);
+  const [reportedItems, setReportedItems] = useState<LostItem[]>([ ]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -56,6 +47,25 @@ export const StudentDashboard = ({ user, onLogout }: StudentDashboardProps) => {
     setReportedItems([newItem, ...reportedItems]);
     setActiveTab('dashboard');
   };
+
+  const fetchLostItems = async () => {
+    const response = await fetch(`http://localhost:5000/api/lost-items/${user.id}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const items = await response.json();
+    console.log(items)
+
+    setReportedItems(items.items);
+  }
+  
+
+  useEffect( () =>{
+     fetchLostItems();
+  }
+    
+  ,[])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white">
