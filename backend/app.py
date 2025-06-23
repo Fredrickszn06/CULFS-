@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import smtplib
 from email.mime.text import MIMEText
@@ -310,7 +310,7 @@ def login():
 @app.route('/api/report-lost-item', methods=['POST'])
 def report_lost_item():
     data = request.get_json()
-    print(data)
+    
     try:
         case_number = generate_case_number()
         
@@ -431,16 +431,17 @@ def get_all_lost_items():
     
     items_data = []
     for lost_item, user in lost_items:
-        items_data.append({
-            'caseNumber': lost_item.case_number,
-            'itemName': lost_item.item_name,
-            'itemType': lost_item.item_type,
-            'status': lost_item.status,
-            'dateReported': lost_item.submission_date.strftime('%Y-%m-%d'),
-            'lastSeenLocation': lost_item.last_seen_location,
-            'reporterName': user.name,
-            'reporterEmail': user.email_address
-        })
+        if lost_item.status!="Found":
+            items_data.append({
+                'caseNumber': lost_item.case_number,
+                'itemName': lost_item.item_name,
+                'itemType': lost_item.item_type,
+                'status': lost_item.status,
+                'dateReported': lost_item.submission_date.strftime('%Y-%m-%d'),
+                'lastSeenLocation': lost_item.last_seen_location,
+                'reporterName': user.name,
+                'reporterEmail': user.email_address
+            })
     
     return jsonify({'success': True, 'items': items_data})
 
@@ -491,5 +492,211 @@ def init_database():
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 400
 
+# --- NEW ROUTES FOR ADMIN FUNCTIONALITY ---
+from sqlalchemy import or_
+
+@app.route('/api/lost-items/<case_number>/mark-found', methods=['POST'])
+def mark_lost_item_found(case_number):
+    try:
+        lost_item = LostItems.query.get(case_number)
+        if not lost_item:
+            return jsonify({'success': False, 'message': 'Lost item not found'}), 404
+        lost_item.status = 'Found'
+        db.session.commit()
+        # Notify user
+        user = User.query.get(lost_item.user_id)
+        if user:
+            notification = Notifications(
+                case_number=case_number,
+                user_id=user.user_id,
+                notification_type='Item_Found',
+                message=f'Your lost item (Case #{case_number}) has been marked as found.',
+                status='Sent'
+            )
+            db.session.add(notification)
+            db.session.commit()
+        return jsonify({'success': True, 'message': 'Lost item marked as found and user notified.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/lost-items/<case_number>/notify', methods=['POST'])
+def notify_reporter(case_number):
+    data = request.get_json()
+    try:
+        lost_item = LostItems.query.get(case_number)
+        if not lost_item:
+            return jsonify({'success': False, 'message': 'Lost item not found'}), 404
+        user = User.query.get(lost_item.user_id)
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'}), 404
+        message = data.get('message', '')
+        notification = Notifications(
+            case_number=case_number,
+            user_id=user.user_id,
+            notification_type='Claim_Reminder',
+            message=message,
+            status='Sent'
+        )
+        db.session.add(notification)
+        db.session.commit()
+        # Optionally send email
+        # send_email(user.email_address, 'Message from Admin', message)
+        return jsonify({'success': True, 'message': 'Notification sent to reporter.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/found-items/<found_item_id>/match', methods=['POST'])
+def match_found_with_lost(found_item_id):
+    data = request.get_json()
+    case_number = data.get('caseNumber')
+    try:
+        found_item = FoundItems.query.get(found_item_id)
+        lost_item = LostItems.query.get(case_number)
+        if not found_item or not lost_item:
+            return jsonify({'success': False, 'message': 'Item not found'}), 404
+        # Create match
+        match = Matches(
+            found_item_id=found_item_id,
+            case_number=case_number,
+            match_status='Confirmed',
+            confirmation=True
+        )
+        db.session.add(match)
+        found_item.status = 'Matched'
+        lost_item.status = 'Matched'
+        db.session.commit()
+        # Notify user
+        user = User.query.get(lost_item.user_id)
+        if user:
+            notification = Notifications(
+                case_number=case_number,
+                user_id=user.user_id,
+                notification_type='Match_Found',
+                message=f'Your lost item (Case #{case_number}) has been matched with a found item.',
+                status='Sent'
+            )
+            db.session.add(notification)
+            db.session.commit()
+        return jsonify({'success': True, 'message': 'Items matched and user notified.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/found-items/<found_item_id>/mark-claimed', methods=['POST'])
+def mark_found_item_claimed(found_item_id):
+    try:
+        found_item = FoundItems.query.get(found_item_id)
+        if not found_item:
+            return jsonify({'success': False, 'message': 'Found item not found'}), 404
+        found_item.status = 'Claimed'
+        # Also mark the matched lost item as claimed
+        match = Matches.query.filter_by(found_item_id=found_item_id, match_status='Confirmed').first()
+        if match:
+            lost_item = LostItems.query.get(match.case_number)
+            if lost_item:
+                lost_item.status = 'Claimed'
+                # Notify user
+                user = User.query.get(lost_item.user_id)
+                if user:
+                    notification = Notifications(
+                        case_number=lost_item.case_number,
+                        user_id=user.user_id,
+                        notification_type='Claim_Reminder',
+                        message=f'Your lost item (Case #{lost_item.case_number}) has been claimed.',
+                        status='Sent'
+                    )
+                    db.session.add(notification)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Found item and matched lost item marked as claimed.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/notifications/<user_id>', methods=['GET'])
+def get_notifications(user_id):
+    notifications = Notifications.query.filter_by(user_id=user_id).order_by(Notifications.notification_date.desc()).all()
+    data = []
+    for n in notifications:
+        data.append({
+            'notificationId': n.notification_id,
+            'caseNumber': n.case_number,
+            'type': n.notification_type,
+            'date': n.notification_date.strftime('%Y-%m-%d %H:%M'),
+            'status': n.status,
+            'message': n.message
+        })
+    return jsonify({'success': True, 'notifications': data})
+
+@app.route('/api/lost-items/<case_number>', methods=['DELETE'])
+def delete_lost_item(case_number):
+    try:
+        lost_item = LostItems.query.get(case_number)
+        if not lost_item:
+            return jsonify({'success': False, 'message': 'Lost item not found'}), 404
+        # Only allow delete if status is Reported or Unclaimed
+        if lost_item.status not in ['Reported', 'Unclaimed']:
+            return jsonify({'success': False, 'message': 'Cannot delete this report.'}), 400
+        db.session.delete(lost_item)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Lost item deleted.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/found-items/<found_item_id>/archive', methods=['POST'])
+def archive_found_item(found_item_id):
+    data = request.get_json()
+    try:
+        found_item = FoundItems.query.get(found_item_id)
+        if not found_item:
+            return jsonify({'success': False, 'message': 'Found item not found'}), 404
+        # Only allow archive if status is Claimed or Unclaimed
+        if found_item.status not in ['Claimed', 'Unclaimed']:
+            return jsonify({'success': False, 'message': 'Cannot archive this item.'}), 400
+        found_item.status = 'Archived'
+        # Optionally, archive the lost item if matched
+        match = Matches.query.filter_by(found_item_id=found_item_id, match_status='Confirmed').first()
+        if match:
+            lost_item = LostItems.query.get(match.case_number)
+            if lost_item and lost_item.status != 'Archived':
+                lost_item.status = 'Archived'
+                # Archive record for lost item
+                archive = Archives(
+                    case_number=lost_item.case_number,
+                    disposition=data.get('disposition', 'Returned_to_Owner')
+                )
+                db.session.add(archive)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Found item archived.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
+@app.route('/api/lost-items/<case_number>/archive', methods=['POST'])
+def archive_lost_item(case_number):
+    try:
+        lost_item = LostItems.query.get(case_number)
+        if not lost_item:
+            return jsonify({'success': False, 'message': 'Lost item not found'}), 404
+        # Only allow archive if not claimed and older than 30 days
+        if lost_item.status == 'Claimed':
+            return jsonify({'success': False, 'message': 'Cannot archive a claimed item.'}), 400
+        if (datetime.utcnow() - lost_item.submission_date) < timedelta(days=30):
+            return jsonify({'success': False, 'message': 'Can only archive reports older than 30 days.'}), 400
+        lost_item.status = 'Archived'
+        archive = Archives(
+            case_number=lost_item.case_number,
+            disposition='Unclaimed'
+        )
+        db.session.add(archive)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Lost item archived.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 400
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+

@@ -2,8 +2,10 @@
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ReportLostItemForm } from '@/components/forms/ReportLostItemForm';
+import { Bell } from 'lucide-react';
 
 interface User {
   id: string;
@@ -30,6 +32,9 @@ interface StaffDashboardProps {
 export const StaffDashboard = ({ user, onLogout }: StaffDashboardProps) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'report' | 'history'>('dashboard');
   const [reportedItems, setReportedItems] = useState<LostItem[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -48,6 +53,15 @@ export const StaffDashboard = ({ user, onLogout }: StaffDashboardProps) => {
     setActiveTab('dashboard');
   };
 
+   const handleShowNotifications = async () => {
+    setShowNotifications(true);
+    setLoadingNotifications(true);
+    const res = await fetch(`http://localhost:5000/api/notifications/${user.id}`);
+    const data = await res.json();
+    setNotifications(data.notifications || []);
+    setLoadingNotifications(false);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white">
       {/* Header */}
@@ -59,14 +73,25 @@ export const StaffDashboard = ({ user, onLogout }: StaffDashboardProps) => {
               <p className="text-purple-100">Welcome back, {user.name}</p>
               <p className="text-purple-200 text-sm">Staff ID: {user.staffId}</p>
             </div>
-            <Button
-              variant="outline"
-              onClick={onLogout}
-              className="border-white text-white hover:bg-white hover:text-purple-600"
-            >
-              Logout
-            </Button>
+            <div className="flex items-center gap-4">
+              {/* Notification Icon */}
+              <button onClick={handleShowNotifications} className="relative focus:outline-none">
+                <Bell className="w-6 h-6 text-white" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full text-xs px-1">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              <Button
+                variant="outline"
+                onClick={onLogout}
+                className="border-white text-purple-600 hover:bg-white hover:text-purple-600"
+              >
+                Logout
+              </Button>
           </div>
+        </div>
         </div>
       </div>
 
@@ -269,6 +294,33 @@ export const StaffDashboard = ({ user, onLogout }: StaffDashboardProps) => {
           </Card>
         )}
       </div>
+      {/* --- NEW: Notifications Drawer --- */}
+      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Notifications</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {loadingNotifications ? (
+              <p className="text-center text-gray-500">Loading notifications...</p>
+            ) : notifications.length === 0 ? (
+              <p className="text-center text-gray-500">No new notifications</p>
+            ) : (
+              notifications.map((notification) => (
+                <div key={notification.id} className="p-4 border-b last:border-b-0">
+                  <p className="text-sm text-gray-600">{notification.message}</p>
+                  <p className="text-xs text-gray-400">{new Date(notification.date).toLocaleString()}</p>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNotifications(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -1,10 +1,17 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LogFoundItemForm } from '@/components/forms/LogFoundItemForm';
+
+// --- NEW: Modal and Notification UI imports ---
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/use-toast";
+import { Bell } from 'lucide-react';
+import { differenceInDays, parseISO } from 'date-fns';
 
 interface User {
   id: string;
@@ -43,6 +50,18 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
 
   const [foundItems, setFoundItems] = useState<FoundItem[]>([]);
   const [lostItems, setLostItems] = useState<LostItem[]>([]);
+
+  // --- NEW STATE FOR MODALS AND NOTIFICATIONS ---
+  const [showLostDetails, setShowLostDetails] = useState(false);
+  const [selectedLostItem, setSelectedLostItem] = useState<LostItem | null>(null);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactMessage, setContactMessage] = useState("");
+  const [showMatchModal, setShowMatchModal] = useState(false);
+  const [selectedFoundItem, setSelectedFoundItem] = useState<FoundItem | null>(null);
+  const [matchCaseNumber, setMatchCaseNumber] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -98,6 +117,135 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
   const totalMatched = lostItems.filter(item => item.status === 'Matched').length;
   const totalClaimed = lostItems.filter(item => item.status === 'Claimed').length;
 
+  // --- HANDLERS ---
+  const handleViewDetails = (item: LostItem) => {
+    setSelectedLostItem(item);
+    setShowLostDetails(true);
+  };
+
+  const handleMarkAsFound = async (item: LostItem) => {
+    const res = await fetch(`http://localhost:5000/api/lost-items/${item.caseNumber}/mark-found`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Marked as Found', description: data.message, variant: 'default' });
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleContactReporter = (item: LostItem) => {
+    setSelectedLostItem(item);
+    setContactMessage("");
+    setShowContactModal(true);
+  };
+
+  const handleSendContact = async () => {
+    if (!selectedLostItem) return;
+    const res = await fetch(`http://localhost:5000/api/lost-items/${selectedLostItem.caseNumber}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: contactMessage })
+    });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Notification Sent', description: data.message, variant: 'default' });
+      setShowContactModal(false);
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleMatchWithReport = (item: FoundItem) => {
+    setSelectedFoundItem(item);
+    setMatchCaseNumber("");
+    setShowMatchModal(true);
+  };
+
+  const handleConfirmMatch = async () => {
+    if (!selectedFoundItem || !matchCaseNumber) return;
+    const res = await fetch(`http://localhost:5000/api/found-items/${selectedFoundItem.foundItemId}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caseNumber: matchCaseNumber })
+    });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Items Matched', description: data.message, variant: 'default' });
+      setShowMatchModal(false);
+      fetchFoundItems();
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleMarkAsClaimed = async (item: FoundItem) => {
+    const res = await fetch(`http://localhost:5000/api/found-items/${item.foundItemId}/mark-claimed`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Marked as Claimed', description: data.message, variant: 'default' });
+      fetchFoundItems();
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleShowNotifications = async () => {
+    setShowNotifications(true);
+    setLoadingNotifications(true);
+    const res = await fetch(`http://localhost:5000/api/notifications/${user.id}`);
+    const data = await res.json();
+    setNotifications(data.notifications || []);
+    setLoadingNotifications(false);
+  };
+
+  // --- NEW: Helper for 30-day check ---
+  const isOlderThan30Days = (dateString: string) => {
+    try {
+      return differenceInDays(new Date(), parseISO(dateString)) > 30;
+    } catch {
+      return false;
+    }
+  };
+
+  // --- NEW: Delete and Archive handlers ---
+  const handleDeleteLostItem = async (item: LostItem) => {
+    if (!window.confirm('Are you sure you want to delete this report?')) return;
+    const res = await fetch(`http://localhost:5000/api/lost-items/${item.caseNumber}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Deleted', description: data.message, variant: 'default' });
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleArchiveLostItem = async (item: LostItem) => {
+    const res = await fetch(`http://localhost:5000/api/lost-items/${item.caseNumber}/archive`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Archived', description: data.message, variant: 'default' });
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
+  const handleArchiveFoundItem = async (item: FoundItem) => {
+    const res = await fetch(`http://localhost:5000/api/found-items/${item.foundItemId}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disposition: 'Returned_to_Owner' }) });
+    const data = await res.json();
+    if (data.success) {
+      toast({ title: 'Archived', description: data.message, variant: 'default' });
+      fetchFoundItems();
+      fetchLostItems();
+    } else {
+      toast({ title: 'Error', description: data.message, variant: 'destructive' });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white">
       {/* Header */}
@@ -109,13 +257,24 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
               <p className="text-purple-100">CULfs System Administration</p>
               <p className="text-purple-200 text-sm">Welcome, {user.name}</p>
             </div>
-            <Button
-              variant="outline"
-              onClick={onLogout}
-              className="border-white text-white hover:bg-white hover:text-purple-600"
-            >
-              Logout
-            </Button>
+              <div className="flex items-center gap-4">
+              {/* Notification Icon */}
+              <button onClick={handleShowNotifications} className="relative focus:outline-none">
+                <Bell className="w-6 h-6 text-white" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full text-xs px-1">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              <Button
+                variant="outline"
+                onClick={onLogout}
+                className="border-white text-purple-600 hover:bg-white hover:text-purple-600"
+              >
+                Logout
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -225,15 +384,30 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
                         </div>
                       </div>
                       <div className="mt-4 flex space-x-2">
-                        <Button size="sm" variant="outline" className="border-purple-300 text-purple-600">
+                        <Button size="sm" variant="outline" className="border-purple-300 text-purple-600" onClick={() => handleViewDetails(item)}>
                           View Details
                         </Button>
-                        <Button size="sm" variant="outline" className="border-green-300 text-green-600">
-                          Mark as Found
-                        </Button>
-                        <Button size="sm" variant="outline" className="border-blue-300 text-blue-600">
-                          Contact Reporter
-                        </Button>
+                        {item.status === 'Reported' && (
+                          <Button size="sm" variant="outline" className="border-green-300 text-green-600" onClick={() => handleMarkAsFound(item)}>
+                            Mark as Found
+                          </Button>
+                        )}
+                        {item.status === 'Reported' && (
+                          <Button size="sm" variant="outline" className="border-blue-300 text-blue-600" onClick={() => handleContactReporter(item)}>
+                            Contact Reporter
+                          </Button>
+                        )}
+                        {item.status === 'Reported' || item.status === 'Unclaimed' ? (
+                          <Button size="sm" variant="outline" className="border-red-300 text-red-600" onClick={() => handleDeleteLostItem(item)}>
+                            Delete
+                          </Button>
+                        ) : null}
+                        {/* Admin: Archive button for lost items older than 30 days and not claimed */}
+                        {item.status !== 'Claimed' && item.status !== 'Archived' && isOlderThan30Days(item.dateReported) && (
+                          <Button size="sm" variant="outline" className="border-gray-300 text-gray-600" onClick={() => handleArchiveLostItem(item)}>
+                            Archive
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -276,12 +450,21 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
                         </div>
                       </div>
                       <div className="flex space-x-2">
-                        <Button size="sm" variant="outline" className="border-purple-300 text-purple-600">
-                          Match with Report
-                        </Button>
-                        <Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600">
-                          Mark as Claimed
-                        </Button>
+                        {item.status === 'Found' && (
+                          <Button size="sm" variant="outline" className="border-purple-300 text-purple-600" onClick={() => handleMatchWithReport(item)}>
+                            Match with Report
+                          </Button>
+                        )}
+                        {item.status === 'Matched' && (
+                          <Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600" onClick={() => handleMarkAsClaimed(item)}>
+                            Mark as Claimed
+                          </Button>
+                        )}
+                        {(item.status === 'Claimed' || item.status === 'Unclaimed') && item.status !== 'Archived' && (
+                          <Button size="sm" variant="outline" className="border-gray-300 text-gray-600" onClick={() => handleArchiveFoundItem(item)}>
+                            Archive
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -324,6 +507,12 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
                         {lostItems.filter(item => !['Claimed', 'Archived'].includes(item.status)).length}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span>Archived Items</span>
+                      <span className="font-bold text-gray-600">
+                        {lostItems.filter(item => item.status === 'Archived').length + foundItems.filter(item => item.status === 'Archived').length}
+                      </span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -353,6 +542,136 @@ export const AdminDashboard = ({ user, onLogout }: AdminDashboardProps) => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* --- NEW: Modals for Lost Item Details, Contact Reporter, and Match Found Item --- */}
+      <Dialog open={showLostDetails} onOpenChange={setShowLostDetails}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Lost Item Details</DialogTitle>
+            <DialogDescription>
+              Detailed information about the lost item and reporter.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="font-medium">Item Name:</p>
+              <p>{selectedLostItem?.itemName}</p>
+            </div>
+            <div>
+              <p className="font-medium">Status:</p>
+              <Badge className={getStatusColor(selectedLostItem?.status)}>
+                {selectedLostItem?.status}
+              </Badge>
+            </div>
+            <div>
+              <p className="font-medium">Reporter:</p>
+              <p>{selectedLostItem?.reporterName}</p>
+            </div>
+            <div>
+              <p className="font-medium">Email:</p>
+              <p>{selectedLostItem?.reporterEmail}</p>
+            </div>
+            <div>
+              <p className="font-medium">Type:</p>
+              <p>{selectedLostItem?.itemType}</p>
+            </div>
+            <div>
+              <p className="font-medium">Date Reported:</p>
+              <p>{selectedLostItem?.dateReported}</p>
+            </div>
+            <div>
+              <p className="font-medium">Last Seen Location:</p>
+              <p>{selectedLostItem?.lastSeenLocation}</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLostDetails(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showContactModal} onOpenChange={setShowContactModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Contact Item Reporter</DialogTitle>
+            <DialogDescription>
+              Send a message to the reporter of the lost item.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              placeholder="Type your message here..."
+              value={contactMessage}
+              onChange={(e) => setContactMessage(e.target.value)}
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowContactModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendContact}>
+              Send Message
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMatchModal} onOpenChange={setShowMatchModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Match Found Item with Report</DialogTitle>
+            <DialogDescription>
+              Enter the case number to match this found item with a reported lost item.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Enter case number"
+              value={matchCaseNumber}
+              onChange={(e) => setMatchCaseNumber(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowMatchModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmMatch}>
+              Confirm Match
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- NEW: Notifications Drawer --- */}
+      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Notifications</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {loadingNotifications ? (
+              <p className="text-center text-gray-500">Loading notifications...</p>
+            ) : notifications.length === 0 ? (
+              <p className="text-center text-gray-500">No new notifications</p>
+            ) : (
+              notifications.map((notification) => (
+                <div key={notification.id} className="p-4 border-b last:border-b-0">
+                  <p className="text-sm text-gray-600">{notification.message}</p>
+                  <p className="text-xs text-gray-400">{new Date(notification.date).toLocaleString()}</p>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNotifications(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
